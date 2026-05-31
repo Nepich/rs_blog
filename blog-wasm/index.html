@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blog WASM</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 960px; margin: 1rem auto; padding: 0 1rem; color: #222; }
+    h1, h2 { color: #2c3e50; }
+    form { border: 1px solid #ddd; padding: 1rem; margin-bottom: 1rem; border-radius: 8px; background: #fafafa; }
+    label { display: block; margin-top: 0.75rem; }
+    input, textarea { width: 100%; padding: 0.5rem; margin-top: 0.25rem; border: 1px solid #ccc; border-radius: 4px; }
+    button { margin-top: 1rem; padding: 0.65rem 1rem; border: none; border-radius: 5px; cursor: pointer; background: #2d8cff; color: white; }
+    button.secondary { background: #777; }
+    .message { margin: 0.5rem 0 1rem; padding: 0.75rem 1rem; border-radius: 6px; }
+    .message.error { background: #ffe7e7; color: #a33; border: 1px solid #f4c2c2; }
+    .message.success { background: #e6f7e6; color: #2a6; border: 1px solid #b7dfb7; }
+    .post { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; background: #fff; }
+    .post-header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+    .post-title { margin: 0; font-size: 1.1rem; }
+    .post-meta { color: #555; font-size: 0.9rem; }
+    .post-controls button { margin-left: 0.5rem; }
+    .grid-two { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+  </style>
+</head>
+<body>
+  <h1>Blog WASM</h1>
+  <p id="status">Загрузка...</p>
+  <div id="message"></div>
+
+  <section>
+    <form id="server-form">
+      <h2>Сервер API</h2>
+      <label>URL сервера
+        <input id="server-url" type="text" value="http://localhost:3000/api" />
+      </label>
+      <button type="submit" class="secondary">Установить сервер</button>
+    </form>
+  </section>
+
+  <section id="auth-section" class="grid-two">
+    <form id="register-form">
+      <h2>Регистрация</h2>
+      <label>Имя пользователя<input id="register-username" type="text" /></label>
+      <label>Email<input id="register-email" type="email" /></label>
+      <label>Пароль<input id="register-password" type="password" /></label>
+      <button type="submit">Зарегистрироваться</button>
+    </form>
+
+    <form id="login-form">
+      <h2>Вход</h2>
+      <label>Имя пользователя<input id="login-username" type="text" /></label>
+      <label>Пароль<input id="login-password" type="password" /></label>
+      <button type="submit">Войти</button>
+    </form>
+  </section>
+
+  <section id="create-section" style="display:none;">
+    <form id="post-form">
+      <h2 id="post-form-title">Создать новый пост</h2>
+      <input id="edit-post-id" type="hidden" />
+      <label>Заголовок<input id="post-title" type="text" /></label>
+      <label>Содержание<textarea id="post-content" rows="6"></textarea></label>
+      <button type="submit">Сохранить пост</button>
+      <button type="button" id="cancel-edit" class="secondary">Отменить</button>
+    </form>
+    <button id="logout-button" type="button" class="secondary" style="display:none;">Выйти</button>
+  </section>
+
+  <section>
+    <h2>Посты</h2>
+    <div id="posts-list"></div>
+  </section>
+
+  <script type="module">
+    import init, { BlogApp } from './pkg/blog_wasm.js';
+
+    const statusEl = document.getElementById('status');
+    const messageEl = document.getElementById('message');
+    const authSection = document.getElementById('auth-section');
+    const createSection = document.getElementById('create-section');
+    const logoutButton = document.getElementById('logout-button');
+    const postsList = document.getElementById('posts-list');
+    const postForm = document.getElementById('post-form');
+    const postFormTitle = document.getElementById('post-form-title');
+    const cancelEdit = document.getElementById('cancel-edit');
+    const serverForm = document.getElementById('server-form');
+    const serverUrl = document.getElementById('server-url');
+
+    const setMessage = (text, type = 'success') => {
+      messageEl.textContent = text;
+      messageEl.className = `message ${type}`;
+    };
+
+    const clearMessage = () => {
+      messageEl.textContent = '';
+      messageEl.className = '';
+    };
+
+    const renderPosts = (posts, currentUserId) => {
+      postsList.innerHTML = '';
+      if (!Array.isArray(posts) || posts.length === 0) {
+        postsList.textContent = 'Постов пока нет.';
+        return;
+      }
+
+      posts.forEach((post) => {
+        const postContainer = document.createElement('article');
+        postContainer.className = 'post';
+
+        const header = document.createElement('div');
+        header.className = 'post-header';
+
+        const title = document.createElement('h3');
+        title.className = 'post-title';
+        title.textContent = post.title || 'Без названия';
+
+        const meta = document.createElement('div');
+        meta.className = 'post-meta';
+        meta.textContent = `Автор ID: ${post.author_id ?? 'неизвестно'}`;
+
+        header.append(title, meta);
+        postContainer.appendChild(header);
+
+        const content = document.createElement('p');
+        content.textContent = post.content || '';
+        postContainer.appendChild(content);
+
+        const createdAt = document.createElement('p');
+        createdAt.className = 'post-meta';
+        createdAt.textContent = `Создано: ${post.created_at || 'неизвестно'}`;
+        postContainer.appendChild(createdAt);
+
+        const authorId = Number(post.author_id);
+        const currentId = Number(currentUserId);
+        if (!Number.isNaN(authorId) && authorId === currentId) {
+          const controls = document.createElement('div');
+          controls.className = 'post-controls';
+
+          const editButton = document.createElement('button');
+          editButton.type = 'button';
+          editButton.textContent = 'Редактировать';
+          editButton.addEventListener('click', () => {
+            document.getElementById('edit-post-id').value = String(post.id);
+            document.getElementById('post-title').value = post.title || '';
+            document.getElementById('post-content').value = post.content || '';
+            postFormTitle.textContent = 'Редактировать пост';
+            createSection.style.display = 'block';
+          });
+
+          const deleteButton = document.createElement('button');
+          deleteButton.type = 'button';
+          deleteButton.textContent = 'Удалить';
+          deleteButton.className = 'secondary';
+          deleteButton.addEventListener('click', async () => {
+            if (!confirm('Удалить этот пост?')) return;
+            try {
+              await app.delete_post(Number(post.id));
+              setMessage('Пост удалён', 'success');
+              await refreshPosts();
+            } catch (err) {
+              setMessage(err.message || JSON.stringify(err), 'error');
+            }
+          });
+
+          controls.append(editButton, deleteButton);
+          postContainer.appendChild(controls);
+        }
+
+        postsList.appendChild(postContainer);
+      });
+    };
+
+    const updateUiState = () => {
+      const authenticated = app.is_authenticated();
+      const username = app.current_username();
+      statusEl.textContent = authenticated
+        ? `Вход выполнен как ${username}`
+        : 'Вы не авторизованы';
+      createSection.style.display = authenticated ? 'block' : 'none';
+      authSection.style.display = authenticated ? 'none' : 'grid';
+      logoutButton.style.display = authenticated ? 'inline-block' : 'none';
+    };
+
+    const refreshPosts = async () => {
+      clearMessage();
+      try {
+        const posts = await app.load_posts();
+        const currentUserId = app.current_user_id();
+        renderPosts(posts, currentUserId);
+      } catch (err) {
+        setMessage(err.message || JSON.stringify(err), 'error');
+      }
+    };
+
+    serverForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      clearMessage();
+
+      try {
+        await app.set_server_url(serverUrl.value.trim());
+        setMessage('URL сервера обновлён', 'success');
+        await refreshPosts();
+      } catch (err) {
+        setMessage(err.message || JSON.stringify(err), 'error');
+      }
+    });
+
+    document.getElementById('register-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      clearMessage();
+
+      const username = document.getElementById('register-username').value.trim();
+      const email = document.getElementById('register-email').value.trim();
+      const password = document.getElementById('register-password').value;
+
+      if (!username || !email || !password) {
+        setMessage('Пожалуйста, заполните все поля регистрации', 'error');
+        return;
+      }
+
+      try {
+        await app.register(username, email, password);
+        setMessage('Регистрация прошла успешно', 'success');
+        updateUiState();
+        await refreshPosts();
+      } catch (err) {
+        setMessage(err.message || JSON.stringify(err), 'error');
+      }
+    });
+
+    document.getElementById('login-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      clearMessage();
+
+      const username = document.getElementById('login-username').value.trim();
+      const password = document.getElementById('login-password').value;
+
+      if (!username || !password) {
+        setMessage('Пожалуйста, заполните все поля входа', 'error');
+        return;
+      }
+
+      try {
+        await app.login(username, password);
+        setMessage('Вход успешно выполнен', 'success');
+        updateUiState();
+        await refreshPosts();
+      } catch (err) {
+        setMessage(err.message || JSON.stringify(err), 'error');
+      }
+    });
+
+    postForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      clearMessage();
+
+      const id = document.getElementById('edit-post-id').value;
+      const title = document.getElementById('post-title').value.trim();
+      const content = document.getElementById('post-content').value.trim();
+
+      if (!title || !content) {
+        setMessage('Заголовок и содержание не могут быть пустыми', 'error');
+        return;
+      }
+
+      try {
+        if (id) {
+          await app.update_post(Number(id), title, content);
+          setMessage('Пост обновлён', 'success');
+        } else {
+          await app.create_post(title, content);
+          setMessage('Пост создан', 'success');
+        }
+
+        document.getElementById('edit-post-id').value = '';
+        postFormTitle.textContent = 'Создать новый пост';
+        postForm.reset();
+        await refreshPosts();
+      } catch (err) {
+        setMessage(err.message || JSON.stringify(err), 'error');
+      }
+    });
+
+    cancelEdit.addEventListener('click', (event) => {
+      event.preventDefault();
+      document.getElementById('edit-post-id').value = '';
+      postFormTitle.textContent = 'Создать новый пост';
+      postForm.reset();
+      clearMessage();
+    });
+
+    logoutButton.addEventListener('click', async () => {
+      clearMessage();
+      try {
+        await app.logout();
+        setMessage('Вы вышли из аккаунта', 'success');
+        updateUiState();
+        await refreshPosts();
+      } catch (err) {
+        setMessage(err.message || JSON.stringify(err), 'error');
+      }
+    });
+
+    let app;
+    async function main() {
+      await init();
+      app = BlogApp.new();
+      updateUiState();
+      await refreshPosts();
+    }
+
+    main().catch((error) => {
+      statusEl.textContent = 'Ошибка загрузки приложения';
+      setMessage(error.message || String(error), 'error');
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+services:
+  
+  db:
+    image: postgres:latest
+    container_name: db
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: blogdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - blog_data:/var/lib/postgresql
+
+  grpcui:
+    image: fullstorydev/grpcui:latest
+    container_name: grpcui
+    ports:
+      - "8080:8080"
+    command: ["-plaintext", "host.docker.internal:50051"]
+
+volumes:
+  blog_data:
