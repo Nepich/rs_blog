@@ -1,6 +1,7 @@
 use gloo_net::http::Request;
 use serde_json::{json, Value};
 use serde_wasm_bindgen::to_value;
+use base64::{engine::general_purpose, Engine as _};
 use wasm_bindgen::prelude::*;
 use web_sys::{window, Storage};
 
@@ -63,6 +64,42 @@ impl BlogApp {
         }
     }
 
+    fn decode_jwt_claims(token: &str) -> (Option<i64>, Option<String>) {
+        let parts: Vec<&str> = token.split('.').collect();
+        if parts.len() != 3 {
+            return (None, None);
+        }
+
+        let mut payload = parts[1].replace('-', "+").replace('_', "/");
+        while payload.len() % 4 != 0 {
+            payload.push('=');
+        }
+
+        let decoded = general_purpose::STANDARD.decode(payload);
+        let decoded = match decoded {
+            Ok(data) => data,
+            Err(_) => return (None, None),
+        };
+
+        let payload_str = match String::from_utf8(decoded) {
+            Ok(text) => text,
+            Err(_) => return (None, None),
+        };
+
+        #[derive(serde::Deserialize)]
+        struct JwtPayload {
+            user_id: Option<i64>,
+            username: Option<String>,
+        }
+
+        let claims = match serde_json::from_str::<JwtPayload>(&payload_str) {
+            Ok(claims) => claims,
+            Err(_) => return (None, None),
+        };
+
+        (claims.user_id, claims.username)
+    }
+
     #[wasm_bindgen]
     pub fn set_server_url(&mut self, url: String) -> Result<(), JsValue> {
         let trimmed = url.trim();
@@ -102,6 +139,8 @@ impl BlogApp {
             "password": password,
         });
 
+        let provided_username = username.clone();
+
         let response = self
             .send_request("auth/register", "POST", Some(body), false)
             .await?;
@@ -112,21 +151,16 @@ impl BlogApp {
             .map(String::from)
             .ok_or_else(|| JsValue::from_str("Server did not return a token"))?;
 
-        let user = response
-            .get("user")
-            .and_then(Value::as_object)
-            .ok_or_else(|| JsValue::from_str("Server did not return user data"))?;
+        let (token_user_id, token_username) = Self::decode_jwt_claims(&token);
+        let user_obj = response.get("user").and_then(Value::as_object);
+        let username = user_obj
+            .and_then(|user| user.get("username").and_then(Value::as_str).map(String::from))
+            .or(token_username)
+            .unwrap_or(provided_username);
 
-        let username = user
-            .get("username")
-            .and_then(Value::as_str)
-            .map(String::from)
-            .ok_or_else(|| JsValue::from_str("User data did not include username"))?;
-
-        let user_id = user
-            .get("id")
-            .and_then(Value::as_i64)
-            .ok_or_else(|| JsValue::from_str("User data did not include id"))?;
+        let user_id = user_obj
+            .and_then(|user| user.get("id").and_then(Value::as_i64))
+            .or(token_user_id);
 
         self.save_login(token.clone(), username.clone(), user_id)?;
         Ok(to_value(&response)?)
@@ -153,21 +187,16 @@ impl BlogApp {
             .map(String::from)
             .ok_or_else(|| JsValue::from_str("Server did not return a token"))?;
 
-        let user = response
-            .get("user")
-            .and_then(Value::as_object)
-            .ok_or_else(|| JsValue::from_str("Server did not return user data"))?;
+        let (token_user_id, token_username) = Self::decode_jwt_claims(&token);
+        let user_obj = response.get("user").and_then(Value::as_object);
+        let username = user_obj
+            .and_then(|user| user.get("username").and_then(Value::as_str).map(String::from))
+            .or(token_username)
+            .unwrap_or(username.clone());
 
-        let username = user
-            .get("username")
-            .and_then(Value::as_str)
-            .map(String::from)
-            .ok_or_else(|| JsValue::from_str("User data did not include username"))?;
-
-        let user_id = user
-            .get("id")
-            .and_then(Value::as_i64)
-            .ok_or_else(|| JsValue::from_str("User data did not include id"))?;
+        let user_id = user_obj
+            .and_then(|user| user.get("id").and_then(Value::as_i64))
+            .or(token_user_id);
 
         self.save_login(token.clone(), username.clone(), user_id)?;
         Ok(to_value(&response)?)
@@ -269,13 +298,20 @@ impl BlogApp {
         Ok(())
     }
 
-    fn save_login(&mut self, token: String, username: String, user_id: i64) -> Result<(), JsValue> {
+    fn save_login(&mut self, token: String, username: String, user_id: Option<i64>) -> Result<(), JsValue> {
         self.token = Some(token.clone());
         self.username = Some(username.clone());
-        self.user_id = Some(user_id);
+        self.user_id = user_id;
         self.save_str_to_storage(STORAGE_TOKEN_KEY, &token)?;
         self.save_str_to_storage(STORAGE_USERNAME_KEY, &username)?;
-        self.save_str_to_storage(STORAGE_USER_ID_KEY, &user_id.to_string())?;
+        if let Some(id) = user_id {
+            self.save_str_to_storage(STORAGE_USER_ID_KEY, &id.to_string())?;
+        } else {
+            let storage = self.local_storage()?;
+            storage
+                .remove_item(STORAGE_USER_ID_KEY)
+                .map_err(|_| JsValue::from_str("Failed to clear user ID from localStorage"))?;
+        }
         Ok(())
     }
 

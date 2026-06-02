@@ -97,6 +97,55 @@
       messageEl.className = '';
     };
 
+    const formatError = (err) => {
+      if (!err) {
+        return 'Произошла неизвестная ошибка';
+      }
+      if (typeof err === 'string') {
+        return err;
+      }
+      if (err instanceof Error && err.message) {
+        return err.message;
+      }
+      if (err instanceof Map) {
+        try {
+          return JSON.stringify(Object.fromEntries(err));
+        } catch (_) {
+          return String(err);
+        }
+      }
+      if (Array.isArray(err)) {
+        return err.map(formatError).join(', ');
+      }
+      if (typeof err === 'object') {
+        if (typeof err.message === 'string' && err.message.trim() !== '') {
+          return err.message;
+        }
+        if (typeof err.error === 'string' && err.error.trim() !== '') {
+          return err.error;
+        }
+        if (typeof err.detail === 'string' && err.detail.trim() !== '') {
+          return err.detail;
+        }
+        if (typeof err.status !== 'undefined' && typeof err.message === 'string') {
+          return `${err.status}: ${err.message}`;
+        }
+        try {
+          const json = JSON.stringify(err);
+          if (json && json !== '{}' && json !== 'null') {
+            return json;
+          }
+        } catch (_) {}
+        if (typeof err.toString === 'function') {
+          const text = err.toString();
+          if (text && text !== '[object Object]') {
+            return text;
+          }
+        }
+      }
+      return String(err);
+    };
+
     const renderPosts = (posts, currentUserId) => {
       postsList.innerHTML = '';
       if (!Array.isArray(posts) || posts.length === 0) {
@@ -104,7 +153,8 @@
         return;
       }
 
-      posts.forEach((post) => {
+      posts.forEach((post_map) => {
+        const post = Object.fromEntries(post_map);
         const postContainer = document.createElement('article');
         postContainer.className = 'post';
 
@@ -132,7 +182,7 @@
         postContainer.appendChild(createdAt);
 
         const authorId = Number(post.author_id);
-        const currentId = Number(currentUserId);
+        const currentId = currentUserId === null ? NaN : Number(currentUserId);
         if (!Number.isNaN(authorId) && authorId === currentId) {
           const controls = document.createElement('div');
           controls.className = 'post-controls';
@@ -155,11 +205,11 @@
           deleteButton.addEventListener('click', async () => {
             if (!confirm('Удалить этот пост?')) return;
             try {
-              await app.delete_post(Number(post.id));
+              await app.delete_post(BigInt(post.id));
               setMessage('Пост удалён', 'success');
               await refreshPosts();
             } catch (err) {
-              setMessage(err.message || JSON.stringify(err), 'error');
+              setMessage(formatError(err), 'error');
             }
           });
 
@@ -189,7 +239,7 @@
         const currentUserId = app.current_user_id();
         renderPosts(posts, currentUserId);
       } catch (err) {
-        setMessage(err.message || JSON.stringify(err), 'error');
+        setMessage(formatError(err), 'error');
       }
     };
 
@@ -202,7 +252,7 @@
         setMessage('URL сервера обновлён', 'success');
         await refreshPosts();
       } catch (err) {
-        setMessage(err.message || JSON.stringify(err), 'error');
+        setMessage(formatError(err), 'error');
       }
     });
 
@@ -225,7 +275,7 @@
         updateUiState();
         await refreshPosts();
       } catch (err) {
-        setMessage(err.message || JSON.stringify(err), 'error');
+        setMessage(formatError(err), 'error');
       }
     });
 
@@ -247,7 +297,7 @@
         updateUiState();
         await refreshPosts();
       } catch (err) {
-        setMessage(err.message || JSON.stringify(err), 'error');
+        setMessage(formatError(err), 'error');
       }
     });
 
@@ -266,7 +316,7 @@
 
       try {
         if (id) {
-          await app.update_post(Number(id), title, content);
+          await app.update_post(BigInt(id), title, content);
           setMessage('Пост обновлён', 'success');
         } else {
           await app.create_post(title, content);
@@ -278,7 +328,7 @@
         postForm.reset();
         await refreshPosts();
       } catch (err) {
-        setMessage(err.message || JSON.stringify(err), 'error');
+        setMessage(formatError(err), 'error');
       }
     });
 
@@ -298,21 +348,21 @@
         updateUiState();
         await refreshPosts();
       } catch (err) {
-        setMessage(err.message || JSON.stringify(err), 'error');
+        setMessage(formatError(err), 'error');
       }
     });
 
     let app;
     async function main() {
       await init();
-      app = BlogApp.new();
+      app = new BlogApp();
       updateUiState();
       await refreshPosts();
     }
 
     main().catch((error) => {
       statusEl.textContent = 'Ошибка загрузки приложения';
-      setMessage(error.message || String(error), 'error');
+      setMessage(formatError(error), 'error');
     });
   </script>
 </body>

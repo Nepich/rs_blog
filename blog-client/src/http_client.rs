@@ -17,7 +17,7 @@ struct RegisterRequest {
 
 #[derive(Serialize)]
 struct LoginRequest {
-    email: String,
+    username: String,
     password: String,
 }
 
@@ -69,6 +69,30 @@ impl HttpBlogClient {
         format!("{}/{}", self.base_url.trim_end_matches('/'), path.trim_start_matches('/'))
     }
 
+    async fn handle_response<T: serde::de::DeserializeOwned  + 'static>(
+        response: reqwest::Response,
+    ) -> Result<T, BlogClientError> {
+        let status = response.status();
+        if !status.is_success() {
+            let text = response.text().await.unwrap_or_default();
+            return match status {
+                StatusCode::UNAUTHORIZED => Err(BlogClientError::Unauthorized),
+                StatusCode::NOT_FOUND => Err(BlogClientError::NotFound),
+                StatusCode::BAD_REQUEST | StatusCode::CONFLICT => {
+                    Err(BlogClientError::InvalidRequest(text))
+                }
+                _ => Err(BlogClientError::InvalidRequest(text)),
+            };
+        }
+
+        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<()>() {
+            let _ = response.text().await.unwrap_or_default();
+            return Ok(serde_json::from_str("null").unwrap());
+        }
+
+        Ok(response.json().await?)
+    }
+
     pub async fn register(
         &self,
         username: String,
@@ -83,22 +107,12 @@ impl HttpBlogClient {
 
         let response = self
             .client
-            .post(self.url("/register"))
+            .post(self.url("/auth/register"))
             .json(&request)
             .send()
             .await?;
 
-        match response.status() {
-            StatusCode::UNAUTHORIZED => return Err(BlogClientError::Unauthorized),
-            StatusCode::NOT_FOUND => return Err(BlogClientError::NotFound),
-            StatusCode::BAD_REQUEST => {
-                let text = response.text().await.unwrap_or_default();
-                return Err(BlogClientError::InvalidRequest(text));
-            }
-            _ => {}
-        }
-
-        let body: AuthRegisterResponse = response.json().await?;
+        let body: AuthRegisterResponse = Self::handle_response(response).await?;
         Ok(AuthResponse {
             token: body.token,
             user: Some(User {
@@ -108,26 +122,16 @@ impl HttpBlogClient {
         })
     }
 
-    pub async fn login(&self, email: String, password: String) -> Result<AuthResponse, BlogClientError> {
-        let request = LoginRequest { email, password };
+    pub async fn login(&self, username: String, password: String) -> Result<AuthResponse, BlogClientError> {
+        let request = LoginRequest { username, password };
         let response = self
             .client
-            .post(self.url("/login"))
+            .post(self.url("/auth/login"))
             .json(&request)
             .send()
             .await?;
 
-        match response.status() {
-            StatusCode::UNAUTHORIZED => return Err(BlogClientError::Unauthorized),
-            StatusCode::NOT_FOUND => return Err(BlogClientError::NotFound),
-            StatusCode::BAD_REQUEST => {
-                let text = response.text().await.unwrap_or_default();
-                return Err(BlogClientError::InvalidRequest(text));
-            }
-            _ => {}
-        }
-
-        let body: AuthLoginResponse = response.json().await?;
+        let body: AuthLoginResponse = Self::handle_response(response).await?;
         Ok(AuthResponse {
             token: Some(body.token),
             user: None,
@@ -149,17 +153,7 @@ impl HttpBlogClient {
             .send()
             .await?;
 
-        match response.status() {
-            StatusCode::UNAUTHORIZED => return Err(BlogClientError::Unauthorized),
-            StatusCode::NOT_FOUND => return Err(BlogClientError::NotFound),
-            StatusCode::BAD_REQUEST => {
-                let text = response.text().await.unwrap_or_default();
-                return Err(BlogClientError::InvalidRequest(text));
-            }
-            _ => {}
-        }
-
-        let body: HttpPostResponse = response.json().await?;
+        let body: HttpPostResponse = Self::handle_response(response).await?;
         Ok(Post {
             id: body.id,
             title: body.title,
@@ -170,17 +164,7 @@ impl HttpBlogClient {
     pub async fn get_post(&self, id: u64) -> Result<Post, BlogClientError> {
         let response = self.client.get(self.url(&format!("/posts/{id}"))).send().await?;
 
-        match response.status() {
-            StatusCode::UNAUTHORIZED => return Err(BlogClientError::Unauthorized),
-            StatusCode::NOT_FOUND => return Err(BlogClientError::NotFound),
-            StatusCode::BAD_REQUEST => {
-                let text = response.text().await.unwrap_or_default();
-                return Err(BlogClientError::InvalidRequest(text));
-            }
-            _ => {}
-        }
-
-        let body: HttpPostResponse = response.json().await?;
+        let body: HttpPostResponse = Self::handle_response(response).await?;
         Ok(Post {
             id: body.id,
             title: body.title,
@@ -204,17 +188,7 @@ impl HttpBlogClient {
             .send()
             .await?;
 
-        match response.status() {
-            StatusCode::UNAUTHORIZED => return Err(BlogClientError::Unauthorized),
-            StatusCode::NOT_FOUND => return Err(BlogClientError::NotFound),
-            StatusCode::BAD_REQUEST => {
-                let text = response.text().await.unwrap_or_default();
-                return Err(BlogClientError::InvalidRequest(text));
-            }
-            _ => {}
-        }
-
-        let body: HttpPostResponse = response.json().await?;
+        let body: HttpPostResponse = Self::handle_response(response).await?;
         Ok(Post {
             id: body.id,
             title: body.title,
@@ -230,16 +204,7 @@ impl HttpBlogClient {
             .send()
             .await?;
 
-        match response.status() {
-            StatusCode::UNAUTHORIZED => return Err(BlogClientError::Unauthorized),
-            StatusCode::NOT_FOUND => return Err(BlogClientError::NotFound),
-            StatusCode::BAD_REQUEST => {
-                let text = response.text().await.unwrap_or_default();
-                return Err(BlogClientError::InvalidRequest(text));
-            }
-            _ => {}
-        }
-
+        Self::handle_response::<()>(response).await?;
         Ok(())
     }
 
@@ -250,17 +215,7 @@ impl HttpBlogClient {
             .send()
             .await?;
 
-        match response.status() {
-            StatusCode::UNAUTHORIZED => return Err(BlogClientError::Unauthorized),
-            StatusCode::NOT_FOUND => return Err(BlogClientError::NotFound),
-            StatusCode::BAD_REQUEST => {
-                let text = response.text().await.unwrap_or_default();
-                return Err(BlogClientError::InvalidRequest(text));
-            }
-            _ => {}
-        }
-
-        let body: HttpPostsResponse = response.json().await?;
+        let body: HttpPostsResponse = Self::handle_response(response).await?;
         Ok(body
             .posts
             .into_iter()

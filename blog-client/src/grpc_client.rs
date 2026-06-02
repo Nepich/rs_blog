@@ -41,8 +41,8 @@ impl GrpcBlogClient {
         })
     }
 
-    pub async fn login(&mut self, email: String, password: String) -> Result<AuthResponse, BlogClientError> {
-        let request = crate::proto::LoginRequest { email, password };
+    pub async fn login(&mut self, username: String, password: String) -> Result<AuthResponse, BlogClientError> {
+        let request = crate::proto::LoginRequest { username, password };
         let response = self
             .inner
             .login(Request::new(request))
