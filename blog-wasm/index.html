@@ -104,7 +104,8 @@
         return;
       }
 
-      posts.forEach((post) => {
+      posts.forEach((post_map) => {
+        const post = Object.fromEntries(post_map);
         const postContainer = document.createElement('article');
         postContainer.className = 'post';
 

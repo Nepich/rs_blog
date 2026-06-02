@@ -69,7 +69,7 @@ impl HttpBlogClient {
         format!("{}/{}", self.base_url.trim_end_matches('/'), path.trim_start_matches('/'))
     }
 
-    async fn handle_response<T: serde::de::DeserializeOwned>(
+    async fn handle_response<T: serde::de::DeserializeOwned  + 'static>(
         response: reqwest::Response,
     ) -> Result<T, BlogClientError> {
         let status = response.status();
