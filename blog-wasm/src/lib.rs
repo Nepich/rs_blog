@@ -102,6 +102,8 @@ impl BlogApp {
             "password": password,
         });
 
+        let provided_username = username.clone();
+
         let response = self
             .send_request("auth/register", "POST", Some(body), false)
             .await?;
@@ -112,21 +114,12 @@ impl BlogApp {
             .map(String::from)
             .ok_or_else(|| JsValue::from_str("Server did not return a token"))?;
 
-        let user = response
-            .get("user")
-            .and_then(Value::as_object)
-            .ok_or_else(|| JsValue::from_str("Server did not return user data"))?;
+        let user_obj = response.get("user").and_then(Value::as_object);
+        let username = user_obj
+            .and_then(|user| user.get("username").and_then(Value::as_str).map(String::from))
+            .unwrap_or(provided_username);
 
-        let username = user
-            .get("username")
-            .and_then(Value::as_str)
-            .map(String::from)
-            .ok_or_else(|| JsValue::from_str("User data did not include username"))?;
-
-        let user_id = user
-            .get("id")
-            .and_then(Value::as_i64)
-            .ok_or_else(|| JsValue::from_str("User data did not include id"))?;
+        let user_id = user_obj.and_then(|user| user.get("id").and_then(Value::as_i64));
 
         self.save_login(token.clone(), username.clone(), user_id)?;
         Ok(to_value(&response)?)
@@ -153,21 +146,12 @@ impl BlogApp {
             .map(String::from)
             .ok_or_else(|| JsValue::from_str("Server did not return a token"))?;
 
-        let user = response
-            .get("user")
-            .and_then(Value::as_object)
-            .ok_or_else(|| JsValue::from_str("Server did not return user data"))?;
+        let user_obj = response.get("user").and_then(Value::as_object);
+        let username = user_obj
+            .and_then(|user| user.get("username").and_then(Value::as_str).map(String::from))
+            .unwrap_or(username.clone());
 
-        let username = user
-            .get("username")
-            .and_then(Value::as_str)
-            .map(String::from)
-            .ok_or_else(|| JsValue::from_str("User data did not include username"))?;
-
-        let user_id = user
-            .get("id")
-            .and_then(Value::as_i64)
-            .ok_or_else(|| JsValue::from_str("User data did not include id"))?;
+        let user_id = user_obj.and_then(|user| user.get("id").and_then(Value::as_i64));
 
         self.save_login(token.clone(), username.clone(), user_id)?;
         Ok(to_value(&response)?)
@@ -269,13 +253,20 @@ impl BlogApp {
         Ok(())
     }
 
-    fn save_login(&mut self, token: String, username: String, user_id: i64) -> Result<(), JsValue> {
+    fn save_login(&mut self, token: String, username: String, user_id: Option<i64>) -> Result<(), JsValue> {
         self.token = Some(token.clone());
         self.username = Some(username.clone());
-        self.user_id = Some(user_id);
+        self.user_id = user_id;
         self.save_str_to_storage(STORAGE_TOKEN_KEY, &token)?;
         self.save_str_to_storage(STORAGE_USERNAME_KEY, &username)?;
-        self.save_str_to_storage(STORAGE_USER_ID_KEY, &user_id.to_string())?;
+        if let Some(id) = user_id {
+            self.save_str_to_storage(STORAGE_USER_ID_KEY, &id.to_string())?;
+        } else {
+            let storage = self.local_storage()?;
+            storage
+                .remove_item(STORAGE_USER_ID_KEY)
+                .map_err(|_| JsValue::from_str("Failed to clear user ID from localStorage"))?;
+        }
         Ok(())
     }
 

@@ -105,7 +105,7 @@ impl BlogClient {
 
     pub async fn login(
         &mut self,
-        email: String,
+        username: String,
         password: String,
     ) -> Result<AuthResponse, BlogClientError> {
         let auth = match &mut self.transport {
@@ -113,14 +113,14 @@ impl BlogClient {
                 self.http_client
                     .as_ref()
                     .expect("HTTP client missing")
-                    .login(email, password)
+                    .login(username, password)
                     .await?
             }
             Transport::Grpc(_) => {
                 self.grpc_client
                     .as_mut()
                     .expect("gRPC client missing")
-                    .login(email, password)
+                    .login(username, password)
                     .await?
             }
         };

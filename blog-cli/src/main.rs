@@ -4,7 +4,7 @@ use blog_client::{BlogClient, Transport};
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 
-const DEFAULT_HTTP_ADDRESS: &str = "http://localhost:8080";
+const DEFAULT_HTTP_ADDRESS: &str = "http://localhost:3000/api";
 const DEFAULT_GRPC_ADDRESS: &str = "http://localhost:50051";
 const TOKEN_FILE: &str = ".blog_token";
 

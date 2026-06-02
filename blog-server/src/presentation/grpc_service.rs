@@ -65,15 +65,7 @@ impl grpc::blog_service_server::BlogService for BlogGrpcService {
                 },
             )
             .await
-            .map_err(|err| match err {
-                crate::domain::error::DomainError::Forbidden => {
-                    Status::permission_denied(err.to_string())
-                }
-                crate::domain::error::DomainError::PostNotFound => {
-                    Status::not_found(err.to_string())
-                }
-                _ => Status::internal(err.to_string()),
-            })?;
+            .map_err(|err| Status::from(err))?;
 
         Ok(Response::new(grpc::PostResponse {
             id: post.id as u64,
@@ -91,12 +83,7 @@ impl grpc::blog_service_server::BlogService for BlogGrpcService {
             .blog_service
             .get_post(body.id as i64)
             .await
-            .map_err(|err| match err {
-                crate::domain::error::DomainError::PostNotFound => {
-                    Status::not_found(err.to_string())
-                }
-                _ => Status::internal(err.to_string()),
-            })?;
+            .map_err(|err| Status::from(err))?;
 
         Ok(Response::new(grpc::PostResponse {
             id: post.id as u64,
@@ -122,7 +109,7 @@ impl grpc::blog_service_server::BlogService for BlogGrpcService {
             .blog_service
             .list_posts(page_size as i64, offset)
             .await
-            .map_err(|err| Status::internal(err.to_string()))?;
+            .map_err(|err| Status::from(err))?;
 
         let response_posts = posts
             .into_iter()
@@ -149,12 +136,7 @@ impl grpc::blog_service_server::BlogService for BlogGrpcService {
             self.blog_service
                 .get_post(body.id as i64)
                 .await
-                .map_err(|err| match err {
-                    crate::domain::error::DomainError::PostNotFound => {
-                        Status::not_found(err.to_string())
-                    }
-                    _ => Status::internal(err.to_string()),
-                })?;
+                .map_err(|err| Status::from(err))?;
 
         let post = self
             .blog_service
@@ -167,15 +149,7 @@ impl grpc::blog_service_server::BlogService for BlogGrpcService {
                 },
             )
             .await
-            .map_err(|err| match err {
-                crate::domain::error::DomainError::Forbidden => {
-                    Status::permission_denied(err.to_string())
-                }
-                crate::domain::error::DomainError::PostNotFound => {
-                    Status::not_found(err.to_string())
-                }
-                _ => Status::internal(err.to_string()),
-            })?;
+            .map_err(|err| Status::from(err))?;
 
         Ok(Response::new(grpc::PostResponse {
             id: post.id as u64,
@@ -194,15 +168,7 @@ impl grpc::blog_service_server::BlogService for BlogGrpcService {
         self.blog_service
             .delete_post(claims.user_id, body.id as i64)
             .await
-            .map_err(|err| match err {
-                crate::domain::error::DomainError::Forbidden => {
-                    Status::permission_denied(err.to_string())
-                }
-                crate::domain::error::DomainError::PostNotFound => {
-                    Status::not_found(err.to_string())
-                }
-                _ => Status::internal(err.to_string()),
-            })?;
+            .map_err(|err| Status::from(err))?;
 
         Ok(Response::new(grpc::DeleteResponse { success: true }))
     }
@@ -214,9 +180,9 @@ impl grpc::blog_service_server::BlogService for BlogGrpcService {
         let body = request.into_inner();
         let (_, token) = self
             .auth_service
-            .login(body.email.clone(), body.password.clone())
+            .login(body.username.clone(), body.password.clone())
             .await
-            .map_err(|_| Status::unauthenticated("Invalid credentials"))?;
+            .map_err(|err| Status::from(err))?;
 
         Ok(Response::new(grpc::LoginResponse { token }))
     }
@@ -234,12 +200,7 @@ impl grpc::blog_service_server::BlogService for BlogGrpcService {
                 password: body.password,
             })
             .await
-            .map_err(|err| match err {
-                crate::domain::error::DomainError::UserAlreadyExists => {
-                    Status::already_exists(err.to_string())
-                }
-                _ => Status::internal(err.to_string()),
-            })?;
+            .map_err(|err| Status::from(err))?;
 
         Ok(Response::new(grpc::RegisterResponse {
             id: user.id as u64,

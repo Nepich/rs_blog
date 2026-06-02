@@ -305,7 +305,7 @@
     let app;
     async function main() {
       await init();
-      app = BlogApp.new();
+      app = new BlogApp();
       updateUiState();
       await refreshPosts();
     }
